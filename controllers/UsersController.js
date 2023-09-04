@@ -1,52 +1,35 @@
 const dbClient = require('../utils/db');
-const sha1 = require('sha1');
+const redisClient = require('../utils/redis');
 
 class UsersController {
-  static async postNew(req, res) {
-    const { email, password } = req.body;
+  static async getMe(req, res) {
+    const { token } = req.headers;
 
-    // Check if email or password is missing
-    if (!email) {
-      return res.status(400).json({ error: 'Missing email' });
-    }
-    if (!password) {
-      return res.status(400).json({ error: 'Missing password' });
+    // Check if the token is provided
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Check if the email already exists in the database
-    const userExists = await dbClient
+    // Retrieve the user based on the token
+    const userId = await redisClient.client.get(`auth_${token}`);
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Retrieve the user object from the database
+    const user = await dbClient
       .client
       .db()
       .collection('users')
-      .findOne({ email });
+      .findOne({ _id: userId });
 
-    if (userExists) {
-      return res.status(400).json({ error: 'Already exists' });
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Hash the password using SHA1
-    const hashedPassword = sha1(password);
-
-    // Create the new user
-    const newUser = {
-      email,
-      password: hashedPassword,
-    };
-
-    // Insert the new user into the 'users' collection
-    const result = await dbClient
-      .client
-      .db()
-      .collection('users')
-      .insertOne(newUser);
-
-    // Return the newly created user with only 'email' and 'id'
-    const createdUser = {
-      email: result.ops[0].email,
-      id: result.ops[0]._id,
-    };
-
-    return res.status(201).json(createdUser);
+    // Return the user object with 'email' and 'id' only
+    return res.status(200).json({ email: user.email, id: user._id });
   }
 }
 
