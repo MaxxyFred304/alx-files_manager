@@ -21,4 +21,12 @@ router.get('/users/me', UsersController.getMe);
 // Add the new file upload endpoint
 router.post('/files', FilesController.postUpload);
 
+// Add new file retrieval endpoints
+router.get('/files/:id', FilesController.getShow);
+router.get('/files', FilesController.getIndex);
+
+// Add new file publishing/unpublishing endpoints
+router.put('/files/:id/publish', FilesController.putPublish);
+router.put('/files/:id/unpublish', FilesController.putUnpublish);
+
 module.exports = router;

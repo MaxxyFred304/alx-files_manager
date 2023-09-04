@@ -3,7 +3,7 @@ const redisClient = require('../utils/redis');
 const { ObjectId } = require('mongodb');
 
 class FilesController {
-  static async getShow(req, res) {
+  static async putPublish(req, res) {
     const { token } = req.headers;
     const { id } = req.params;
 
@@ -19,23 +19,30 @@ class FilesController {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Find the file document by ID and user
-    const file = await dbClient
+    // Convert ID to ObjectId for MongoDB query
+    const fileId = ObjectId(id);
+
+    // Find and update the file document
+    const updatedFile = await dbClient
       .client
       .db()
       .collection('files')
-      .findOne({ _id: ObjectId(id), userId });
+      .findOneAndUpdate(
+        { _id: fileId, userId },
+        { $set: { isPublic: true } },
+        { returnOriginal: false }
+      );
 
-    if (!file) {
+    if (!updatedFile.value) {
       return res.status(404).json({ error: 'Not found' });
     }
 
-    return res.status(200).json(file);
+    return res.status(200).json(updatedFile.value);
   }
 
-  static async getIndex(req, res) {
+  static async putUnpublish(req, res) {
     const { token } = req.headers;
-    const { parentId = '0', page = 0 } = req.query;
+    const { id } = req.params;
 
     // Check if the token is provided
     if (!token) {
@@ -49,30 +56,25 @@ class FilesController {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Convert parentId to ObjectId for MongoDB query
-    const parentIdObjectId = ObjectId(parentId);
+    // Convert ID to ObjectId for MongoDB query
+    const fileId = ObjectId(id);
 
-    // Define the number of items per page
-    const itemsPerPage = 20;
-
-    // Calculate the skip value for pagination
-    const skip = page * itemsPerPage;
-
-    // Aggregate to fetch files with pagination
-    const pipeline = [
-      { $match: { parentId: parentIdObjectId, userId } },
-      { $skip: skip },
-      { $limit: itemsPerPage },
-    ];
-
-    const files = await dbClient
+    // Find and update the file document
+    const updatedFile = await dbClient
       .client
       .db()
       .collection('files')
-      .aggregate(pipeline)
-      .toArray();
+      .findOneAndUpdate(
+        { _id: fileId, userId },
+        { $set: { isPublic: false } },
+        { returnOriginal: false }
+      );
 
-    return res.status(200).json(files);
+    if (!updatedFile.value) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    return res.status(200).json(updatedFile.value);
   }
 }
 
