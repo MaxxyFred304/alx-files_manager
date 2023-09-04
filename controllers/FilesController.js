@@ -1,12 +1,11 @@
 const dbClient = require('../utils/db');
 const redisClient = require('../utils/redis');
-const fs = require('fs');
-const { v4: uuidv4 } = require('uuid');
+const { ObjectId } = require('mongodb');
 
 class FilesController {
-  static async postUpload(req, res) {
+  static async getShow(req, res) {
     const { token } = req.headers;
-    const { name, type, parentId = 0, isPublic = false, data } = req.body;
+    const { id } = req.params;
 
     // Check if the token is provided
     if (!token) {
@@ -20,62 +19,60 @@ class FilesController {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Check for missing name, type, or data
-    if (!name) {
-      return res.status(400).json({ error: 'Missing name' });
-    }
-    if (!type || !['folder', 'file', 'image'].includes(type)) {
-      return res.status(400).json({ error: 'Missing type' });
-    }
-    if (!data && type !== 'folder') {
-      return res.status(400).json({ error: 'Missing data' });
-    }
-
-    // Check if parentId is set
-    if (parentId !== 0) {
-      const parentFile = await dbClient
-        .client
-        .db()
-        .collection('files')
-        .findOne({ _id: parentId });
-
-      if (!parentFile) {
-        return res.status(400).json({ error: 'Parent not found' });
-      }
-
-      if (parentFile.type !== 'folder') {
-        return res.status(400).json({ error: 'Parent is not a folder' });
-      }
-    }
-
-    // Create a local path for storing the file
-    const folderPath = process.env.FOLDER_PATH || '/tmp/files_manager';
-    const localPath = `${folderPath}/${uuidv4()}`;
-
-    // Store the file locally
-    if (type !== 'folder') {
-      const fileDataBuffer = Buffer.from(data, 'base64');
-      fs.writeFileSync(localPath, fileDataBuffer);
-    }
-
-    // Create the new file document
-    const newFile = {
-      userId,
-      name,
-      type,
-      isPublic,
-      parentId,
-      localPath: type !== 'folder' ? localPath : undefined,
-    };
-
-    // Insert the new file into the 'files' collection
-    const result = await dbClient
+    // Find the file document by ID and user
+    const file = await dbClient
       .client
       .db()
       .collection('files')
-      .insertOne(newFile);
+      .findOne({ _id: ObjectId(id), userId });
 
-    return res.status(201).json(result.ops[0]);
+    if (!file) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    return res.status(200).json(file);
+  }
+
+  static async getIndex(req, res) {
+    const { token } = req.headers;
+    const { parentId = '0', page = 0 } = req.query;
+
+    // Check if the token is provided
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Retrieve the user based on the token
+    const userId = await redisClient.client.get(`auth_${token}`);
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Convert parentId to ObjectId for MongoDB query
+    const parentIdObjectId = ObjectId(parentId);
+
+    // Define the number of items per page
+    const itemsPerPage = 20;
+
+    // Calculate the skip value for pagination
+    const skip = page * itemsPerPage;
+
+    // Aggregate to fetch files with pagination
+    const pipeline = [
+      { $match: { parentId: parentIdObjectId, userId } },
+      { $skip: skip },
+      { $limit: itemsPerPage },
+    ];
+
+    const files = await dbClient
+      .client
+      .db()
+      .collection('files')
+      .aggregate(pipeline)
+      .toArray();
+
+    return res.status(200).json(files);
   }
 }
 
